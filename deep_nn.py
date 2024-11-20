@@ -14,7 +14,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 data_generator = ImageDataGenerator(preprocessing_function=preprocess_input)
 
-image_directory = '/Users/david/Desktop/AI-ML-assignment'
+image_directory = './archive'
 image_generator = data_generator.flow_from_directory(
     image_directory,
     target_size=(224, 224),
@@ -42,28 +42,40 @@ with open('/Users/david/Desktop/AI-ML-assignmentfeatures.pkl', 'wb') as f:
 
 print("Feature extraction complete. Features saved to 'features.pkl'.")
 
+import string
+
 def clean_captions(caption_file):
     captions = {}
     with open(caption_file, 'r') as file:
         for line in file:
             line = line.strip()
             if not line:
-                #if line is empty i.e not true skip the line
+                # Skip empty lines
                 continue
-            img_id, caption = line.split(' ', 1)
-            img_id = img_id.split('.')[0]
-            #clean caption .i.e remove lowercase, remove punctuation, and start and end token 
-            caption = caption.lowercase()
-            caption = caption.translate(str.maketrans('','',string.punctuation))
-            caption = "start" + caption + "end"
+            
+            # Split line into img_id and caption
+            parts = line.split(' ', 1)
+            
+            if len(parts) < 2:
+                continue
+            
+            img_id, caption = parts
+            img_id = img_id.split('.')[0]  
+            
+            # Clean the caption: lowercase, remove punctuation, add start and end tokens
+            caption = caption.lower()
+            caption = caption.translate(str.maketrans('', '', string.punctuation))  # Remove punctuation
+            caption = "start " + caption + " end"  # Add start and end tokens
             
             if img_id not in captions:
                 captions[img_id] = []
             captions[img_id].append(caption)
+    
     return captions
 
-caption_file = '/Users/david/Desktop/AI-ML-assignment/archive/captions.txt'
+caption_file = './archive/captions.txt'
 captions = clean_captions(caption_file)
+
             
             
             
