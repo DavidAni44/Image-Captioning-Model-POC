@@ -32,7 +32,10 @@ def extract_features(image_directory, save_path):
             img = np.expand_dims(img, axis=0)  # Add batch dimension
 
             feature = encoder_model.predict(img)
-            features[img_name] = feature.flatten()
+            feature = feature.flatten()
+            feature = np.expand_dims(feature, axis=0)  # Add batch dimension
+            feature = Dense(4096, activation='relu')(feature)  # Reduce dimensionality to 4096
+            features[os.path.splitext(img_name)[0]] = feature.numpy().flatten()
         except Exception as e:
             print(f"Error processing image {img_name}: {e}")
 
@@ -135,7 +138,7 @@ def data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size=3
                     y.append(out_seq)
                     n += 1
                     if n == batch_size:
-                        yield ([np.array(X1), np.array(X2)], np.array(y))
+                        yield (np.array(X1), np.array(X2)), np.array(y)
                         X1, X2, y = [], [], []
                         n = 0
 
@@ -188,3 +191,50 @@ dataset = tf.data.Dataset.from_generator(
 
 # Train the model
 model.fit(generator, steps_per_epoch=steps_per_epoch, epochs=20, verbose=1)
+
+model.save('image_captioning_model.h5')
+with open('tokenizer.pkl', 'wb') as f:
+    pickle.dump(tokenizer, f)
+    
+
+def extract_single_feature(image_path, encoder_model):
+    img = load_img(image_path, target_size=(224, 224))
+    img = img_to_array(img)
+    img = preprocess_input(img)
+    img = np.expand_dims(img, axis=0)
+    feature = encoder_model.predict(img)
+    feature = feature.flatten()
+    feature = np.expand_dims(feature, axis=0)  # Add batch dimension
+    feature = Dense(4096, activation='relu')(feature)  # Reduce dimensionality to 4096
+    return feature.numpy().flatten()
+
+
+def generate_caption(model, tokenizer, image_feature, max_length):
+    in_text = 'start'
+    for _ in range(max_length):
+        sequence = tokenizer.texts_to_sequences([in_text])[0]
+        sequence = pad_sequences([sequence], maxlen=max_length, padding='post')[0]
+        
+        # Ensure image_feature has the correct shape
+        image_feature = np.expand_dims(image_feature, axis=0)  # Shape (1, 4096)
+        
+        # Ensure sequence has the correct shape
+        sequence = np.expand_dims(sequence, axis=0)  # Shape (1, max_length)
+        
+        # Predict
+        yhat = model.predict([image_feature, sequence], verbose=0)
+        yhat = np.argmax(yhat)
+        word = tokenizer.index_word.get(yhat)
+        if word is None or word == 'end':
+            break
+        in_text += ' ' + word
+    return in_text.replace('start', '').strip()
+
+
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+encoder_model = Model(inputs=base_model.input, outputs=base_model.layers[-1].output)
+
+test_image_path = 'test images\kitty.jpg'
+image_feature = extract_single_feature(test_image_path, encoder_model)
+caption = generate_caption(model, tokenizer, image_feature, max_length)
+print("Generated Caption:", caption)
