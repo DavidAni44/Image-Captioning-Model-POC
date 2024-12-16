@@ -190,7 +190,7 @@ dataset = tf.data.Dataset.from_generator(
 )
 
 # Train the model
-model.fit(generator, steps_per_epoch=steps_per_epoch, epochs=20, verbose=1)
+model.fit(generator, steps_per_epoch=steps_per_epoch, epochs=50, verbose=1)
 
 model.save('image_captioning_model.h5')
 with open('tokenizer.pkl', 'wb') as f:
@@ -211,24 +211,36 @@ def extract_single_feature(image_path, encoder_model):
 
 def generate_caption(model, tokenizer, image_feature, max_length):
     in_text = 'start'
+    
+    # Ensure image_feature has the correct shape (1, 4096)
+    if image_feature.ndim == 1:  # If it's (4096,)
+        image_feature = np.expand_dims(image_feature, axis=0)
+
     for _ in range(max_length):
+        # Convert text to sequence
         sequence = tokenizer.texts_to_sequences([in_text])[0]
+        # Pad the sequence to max_length
         sequence = pad_sequences([sequence], maxlen=max_length, padding='post')[0]
         
-        # Ensure image_feature has the correct shape
-        image_feature = np.expand_dims(image_feature, axis=0)  # Shape (1, 4096)
-        
-        # Ensure sequence has the correct shape
-        sequence = np.expand_dims(sequence, axis=0)  # Shape (1, max_length)
-        
-        # Predict
+        # Ensure sequence has the correct shape (1, max_length)
+        sequence = np.expand_dims(sequence, axis=0)
+
+        # Debugging: Print shapes before prediction
+        print(f"Image Feature Shape: {image_feature.shape}")  # Should be (1, 4096)
+        print(f"Sequence Shape: {sequence.shape}")            # Should be (1, max_length)
+
+        # Predict next word
         yhat = model.predict([image_feature, sequence], verbose=0)
-        yhat = np.argmax(yhat)
+        yhat = np.argmax(yhat)  # Get the word index with the highest probability
+        
+        # Map word index to word
         word = tokenizer.index_word.get(yhat)
         if word is None or word == 'end':
             break
         in_text += ' ' + word
+
     return in_text.replace('start', '').strip()
+
 
 
 base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
