@@ -177,19 +177,18 @@ steps_per_epoch = sum(len(caption_list) for caption_list in captions.values()) /
 # Initialize the generator
 generator = data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size)
 
-# Define the output signature for the generator
+
 output_signature = (
     (tf.TensorSpec(shape=(None, 4096), dtype=tf.float32), tf.TensorSpec(shape=(None, max_length), dtype=tf.float32)),
     tf.TensorSpec(shape=(None, vocab_size), dtype=tf.float32)
 )
 
-# Create a tf.data.Dataset from the generator
+
 dataset = tf.data.Dataset.from_generator(
     lambda: generator,
     output_signature=output_signature
 )
 
-# Train the model
 model.fit(generator, steps_per_epoch=steps_per_epoch, epochs=50, verbose=1)
 
 model.save('image_captioning_model.h5')
