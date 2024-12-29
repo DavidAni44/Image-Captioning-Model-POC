@@ -1,6 +1,3 @@
-#resources used https://www.tensorflow.org/text/tutorials/image_captioning, https://blog.paperspace.com/image-captioning-with-ai/, https://blog.paperspace.com/image-captioning-with-tensorflow/, Github copilot
-
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -16,11 +13,12 @@ from tensorflow.keras.layers import Input, Dense, Embedding, LSTM, Dropout, Add
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
+from nltk.translate.bleu_score import sentence_bleu, corpus_bleu
 
 def extract_features(image_directory, save_path):
-    # Load pre-trained VGG16
     base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-    encoder_model = Model(inputs=base_model.input, outputs=base_model.layers[-1].output)
+    pooling_layer = tf.keras.layers.GlobalAveragePooling2D()  # Added pooling layer
+    encoder_model = Model(inputs=base_model.input, outputs=pooling_layer(base_model.output))
 
     features = {}
     for img_name in os.listdir(image_directory):
@@ -29,26 +27,16 @@ def extract_features(image_directory, save_path):
             img = load_img(img_path, target_size=(224, 224))
             img = img_to_array(img)
             img = preprocess_input(img)
-            img = np.expand_dims(img, axis=0)  # Add batch dimension
+            img = np.expand_dims(img, axis=0)
 
-            feature = encoder_model.predict(img)
-            feature = feature.flatten()
-            feature = np.expand_dims(feature, axis=0)  # Add batch dimension
-            feature = Dense(4096, activation='relu')(feature)  # Reduce dimensionality to 4096
-            features[os.path.splitext(img_name)[0]] = feature.numpy().flatten()
+            feature = encoder_model.predict(img).flatten()  # Flatten the pooled output
+            features[os.path.splitext(img_name)[0]] = feature
         except Exception as e:
             print(f"Error processing image {img_name}: {e}")
 
     with open(save_path, 'wb') as f:
         pickle.dump(features, f)
     print(f"Feature extraction complete. Features saved to '{save_path}'.")
-
-# Extract features and save them
-image_directory = './archive/images'
-save_path = './features.pkl'
-
-#extract_features(image_directory, save_path)
-
 
 def clean_captions(caption_file):
     captions = {}
@@ -70,80 +58,44 @@ def clean_captions(caption_file):
             captions[img_id].append(caption)
     return captions
 
-# Load and clean captions
-caption_file = './archive/captions.txt'
-captions = clean_captions(caption_file)
-
 def create_tokenizer(captions, max_vocab_size=5000):
     caption_list = [caption for caption_group in captions.values() for caption in caption_group]
     tokenizer = Tokenizer(num_words=max_vocab_size, oov_token='<unk>')
     tokenizer.fit_on_texts(caption_list)
     return tokenizer
 
-tokenizer = create_tokenizer(captions)
-
-#turn words into numbers so it can be passed into the model 
 def caption_to_sequence(tokenizer, captions, max_length):
     sequences = {}
     for img_id, caption_group in captions.items():
         sequences[img_id] = []
         for caption in caption_group:
-            # Convert caption to sequence of integers
             seq = tokenizer.texts_to_sequences([caption])[0]
-            # Pad the sequence
             seq = pad_sequences([seq], maxlen=max_length, padding='post')[0]
             sequences[img_id].append(seq)
     return sequences
 
-# Calculate max_length based on the captions
-all_captions = [caption for caption_group in captions.values() for caption in caption_group]
-max_length = max(len(tokenizer.texts_to_sequences([caption])[0]) for caption in all_captions)
-
-# Example usage
-sequences = caption_to_sequence(tokenizer, captions, max_length)
-
-# Padding the sequences so they are all the same length
-def pad_caption_sequences(sequences, max_length):
-    padded_sequences = {}
-    for img_id, seq_list in sequences.items():
-        padded_sequences[img_id] = pad_sequences(seq_list, maxlen=max_length, padding='post')
-    return padded_sequences
-
-# Example usage
-padded_sequences = pad_caption_sequences(sequences, max_length)
-
-
-
 def data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size=32):
-    n = 0
-    X1, X2, y = [], [], []
     feature_keys = set(features.keys())
     while True:
+        X1, X2, y = [], [], []
         for img_id, caption_list in captions.items():
             if img_id not in feature_keys:
-                print(f"Warning: {img_id} not found in features. Available keys: {list(feature_keys)[:5]}...")  # Print first 5 keys for debugging
+                print(f"Warning: {img_id} not found in features. Available keys: {list(feature_keys)[:5]}...")
                 continue
             for caption in caption_list:
-                # Convert caption to sequence of integers
                 seq = tokenizer.texts_to_sequences([caption])[0]
                 for i in range(1, len(seq)):
-                    # Create input-output pairs from tokenized captions
                     in_seq, out_seq = seq[:i], seq[i]
                     in_seq = pad_sequences([in_seq], maxlen=max_length, padding='post')[0]
                     out_seq = tf.keras.utils.to_categorical([out_seq], num_classes=vocab_size)[0]
-                    
-                    # Append to batch
                     X1.append(features[img_id])
                     X2.append(in_seq)
                     y.append(out_seq)
-                    n += 1
-                    if n == batch_size:
+                    if len(X1) == batch_size:
                         yield (np.array(X1), np.array(X2)), np.array(y)
                         X1, X2, y = [], [], []
-                        n = 0
 
-                        
-def build_image_captioning_model(vocab_size, max_length, feature_vector_size=4096, embedding_dim=256, lstm_units=256):
+def build_image_captioning_model(vocab_size, max_length, feature_vector_size=512, embedding_dim=256, lstm_units=256):
     image_input = Input(shape=(feature_vector_size,))
     image_dense = Dense(embedding_dim, activation='relu')(image_input)
 
@@ -158,94 +110,92 @@ def build_image_captioning_model(vocab_size, max_length, feature_vector_size=409
     model.compile(optimizer='adam', loss='categorical_crossentropy')
     return model
 
-with open('./features.pkl', 'rb') as f:
-    features = pickle.load(f)
-    
-features = {os.path.splitext(key)[0]: value for key, value in features.items()}
-
-# Define parameters
-batch_size = 32
-vocab_size = len(tokenizer.word_index) + 1  # Define vocab_size
-max_length = max(len(seq) for seq_list in sequences.values() for seq in seq_list)  # Calculate max_length
-
-# Build the model
-model = build_image_captioning_model(vocab_size, max_length)
-
-# Calculate steps per epoch
-steps_per_epoch = sum(len(caption_list) for caption_list in captions.values()) // batch_size
-
-# Initialize the generator
-generator = data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size)
-
-
-output_signature = (
-    (tf.TensorSpec(shape=(None, 4096), dtype=tf.float32), tf.TensorSpec(shape=(None, max_length), dtype=tf.float32)),
-    tf.TensorSpec(shape=(None, vocab_size), dtype=tf.float32)
-)
-
-
-dataset = tf.data.Dataset.from_generator(
-    lambda: generator,
-    output_signature=output_signature
-)
-
-model.fit(generator, steps_per_epoch=steps_per_epoch, epochs=50, verbose=1)
-
-model.save('image_captioning_model.h5')
-with open('tokenizer.pkl', 'wb') as f:
-    pickle.dump(tokenizer, f)
-    
-
 def extract_single_feature(image_path, encoder_model):
     img = load_img(image_path, target_size=(224, 224))
     img = img_to_array(img)
     img = preprocess_input(img)
     img = np.expand_dims(img, axis=0)
-    feature = encoder_model.predict(img)
-    feature = feature.flatten()
-    feature = np.expand_dims(feature, axis=0)  # Add batch dimension
-    feature = Dense(4096, activation='relu')(feature)  # Reduce dimensionality to 4096
-    return feature.numpy().flatten()
-
+    return encoder_model.predict(img).flatten()
 
 def generate_caption(model, tokenizer, image_feature, max_length):
     in_text = 'start'
-    
-    # Ensure image_feature has the correct shape (1, 4096)
-    if image_feature.ndim == 1:  # If it's (4096,)
-        image_feature = np.expand_dims(image_feature, axis=0)
-
     for _ in range(max_length):
-        # Convert text to sequence
         sequence = tokenizer.texts_to_sequences([in_text])[0]
-        # Pad the sequence to max_length
         sequence = pad_sequences([sequence], maxlen=max_length, padding='post')[0]
-        
-        # Ensure sequence has the correct shape (1, max_length)
         sequence = np.expand_dims(sequence, axis=0)
-
-        # Debugging: Print shapes before prediction
-        print(f"Image Feature Shape: {image_feature.shape}")  # Should be (1, 4096)
-        print(f"Sequence Shape: {sequence.shape}")            # Should be (1, max_length)
-
-        # Predict next word
-        yhat = model.predict([image_feature, sequence], verbose=0)
-        yhat = np.argmax(yhat)  # Get the word index with the highest probability
-        
-        # Map word index to word
+        yhat = model.predict([np.array([image_feature]), sequence], verbose=0)
+        yhat = np.argmax(yhat)
         word = tokenizer.index_word.get(yhat)
         if word is None or word == 'end':
             break
         in_text += ' ' + word
-
     return in_text.replace('start', '').strip()
 
+def evaluate_bleu_score(model, tokenizer, features, captions, max_length):
+    references = []
+    candidates = []
 
+    for img_id, ground_truth_captions in captions.items():
+        if img_id not in features:
+            print(f"Warning: Image ID {img_id} not found in features.")
+            continue
+
+        image_feature = features[img_id]
+        generated_caption = generate_caption(model, tokenizer, image_feature, max_length)
+
+        references.append([caption.split() for caption in ground_truth_captions])
+        candidates.append(generated_caption.split())
+
+    bleu1 = corpus_bleu(references, candidates, weights=(1.0, 0, 0, 0))
+    bleu2 = corpus_bleu(references, candidates, weights=(0.5, 0.5, 0, 0))
+
+    print(f"BLEU-1 Score: {bleu1:.4f}")
+    print(f"BLEU-2 Score: {bleu2:.4f}")
+    return bleu1, bleu2
+
+image_directory = './archive/images'
+save_path = './features.pkl'
+#extract_features(image_directory, save_path)
+
+caption_file = './archive/captions.txt'
+captions = clean_captions(caption_file)
+tokenizer = create_tokenizer(captions)
+vocab_size = len(tokenizer.word_index) + 1
+
+all_captions = [caption for caption_group in captions.values() for caption in caption_group]
+max_length = max(len(tokenizer.texts_to_sequences([caption])[0]) for caption in all_captions)
+
+with open('./features.pkl', 'rb') as f:
+    features = pickle.load(f)
+
+features = {os.path.splitext(key)[0]: value for key, value in features.items()}
+
+batch_size = 32
+steps_per_epoch = sum(len(caption_list) for caption_list in captions.values()) // batch_size
+generator = data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size)
+
+dataset = tf.data.Dataset.from_generator(
+    lambda: data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size),
+    output_signature=(
+        (tf.TensorSpec(shape=(None, 512), dtype=tf.float32), tf.TensorSpec(shape=(None, max_length), dtype=tf.float32)),
+        tf.TensorSpec(shape=(None, vocab_size), dtype=tf.float32)
+    )
+)
+
+model = build_image_captioning_model(vocab_size, max_length)
+model.fit(dataset, steps_per_epoch=steps_per_epoch, epochs=20, verbose=1)
+
+model.save('image_captioning_model.keras')
+with open('tokenizer.pkl', 'wb') as f:
+    pickle.dump(tokenizer, f)
 
 base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-encoder_model = Model(inputs=base_model.input, outputs=base_model.layers[-1].output)
+encoder_model = Model(inputs=base_model.input, outputs=tf.keras.layers.GlobalAveragePooling2D()(base_model.output))
 
-test_image_path = 'test images\kitty.jpg'
+test_image_path = r'test images/kitty.jpg'
 image_feature = extract_single_feature(test_image_path, encoder_model)
 caption = generate_caption(model, tokenizer, image_feature, max_length)
 print("Generated Caption:", caption)
+
+# Evaluate BLEU Score
+evaluate_bleu_score(model, tokenizer, features, captions, max_length)
