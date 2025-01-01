@@ -14,10 +14,14 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from nltk.translate.bleu_score import sentence_bleu, corpus_bleu
+from tensorflow.keras.applications import Xception
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import GlobalAveragePooling2D
 
 def extract_features(image_directory, save_path):
-    base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-    pooling_layer = tf.keras.layers.GlobalAveragePooling2D()  # Added pooling layer
+    # Load Xception without the top classification layer
+    base_model = Xception(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+    pooling_layer = GlobalAveragePooling2D()  # Added pooling layer
     encoder_model = Model(inputs=base_model.input, outputs=pooling_layer(base_model.output))
 
     features = {}
@@ -29,7 +33,8 @@ def extract_features(image_directory, save_path):
             img = preprocess_input(img)
             img = np.expand_dims(img, axis=0)
 
-            feature = encoder_model.predict(img).flatten()  # Flatten the pooled output
+            # Extract features (2048-dimensional vector)
+            feature = encoder_model.predict(img).flatten()
             features[os.path.splitext(img_name)[0]] = feature
         except Exception as e:
             print(f"Error processing image {img_name}: {e}")
@@ -37,6 +42,7 @@ def extract_features(image_directory, save_path):
     with open(save_path, 'wb') as f:
         pickle.dump(features, f)
     print(f"Feature extraction complete. Features saved to '{save_path}'.")
+
 
 def clean_captions(caption_file):
     captions = {}
@@ -95,8 +101,9 @@ def data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size=3
                         yield (np.array(X1), np.array(X2)), np.array(y)
                         X1, X2, y = [], [], []
 
-def build_image_captioning_model(vocab_size, max_length, feature_vector_size=512, embedding_dim=256, lstm_units=256):
-    image_input = Input(shape=(feature_vector_size,))
+def build_image_captioning_model(vocab_size, max_length, feature_vector_size=2048, embedding_dim=256, lstm_units=256):
+    # Ensure that the input shape is 2048, not 512
+    image_input = Input(shape=(feature_vector_size,))  # Change 512 to 2048
     image_dense = Dense(embedding_dim, activation='relu')(image_input)
 
     caption_input = Input(shape=(max_length,))
@@ -109,6 +116,7 @@ def build_image_captioning_model(vocab_size, max_length, feature_vector_size=512
     model = Model(inputs=[image_input, caption_input], outputs=decoder_output)
     model.compile(optimizer='adam', loss='categorical_crossentropy')
     return model
+
 
 def extract_single_feature(image_path, encoder_model):
     img = load_img(image_path, target_size=(224, 224))
@@ -177,7 +185,7 @@ generator = data_gen(captions, features, tokenizer, max_length, vocab_size, batc
 dataset = tf.data.Dataset.from_generator(
     lambda: data_gen(captions, features, tokenizer, max_length, vocab_size, batch_size),
     output_signature=(
-        (tf.TensorSpec(shape=(None, 512), dtype=tf.float32), tf.TensorSpec(shape=(None, max_length), dtype=tf.float32)),
+        (tf.TensorSpec(shape=(None, 2048), dtype=tf.float32), tf.TensorSpec(shape=(None, max_length), dtype=tf.float32)),
         tf.TensorSpec(shape=(None, vocab_size), dtype=tf.float32)
     )
 )
@@ -192,7 +200,7 @@ with open('tokenizer.pkl', 'wb') as f:
 base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
 encoder_model = Model(inputs=base_model.input, outputs=tf.keras.layers.GlobalAveragePooling2D()(base_model.output))
 
-test_image_path = r'test images/kitty.jpg'
+test_image_path = r'test_images/kitty.jpg'
 image_feature = extract_single_feature(test_image_path, encoder_model)
 caption = generate_caption(model, tokenizer, image_feature, max_length)
 print("Generated Caption:", caption)
