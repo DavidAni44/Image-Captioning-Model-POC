@@ -78,10 +78,13 @@ python deep_nn.py
 
 ```
 ├── test_images/          # Folder with unseen images for caption generation
-├── features_resnet.pkl   # Saved image feature vectors
+├── tokenizer_vgg16.pkl   # Saved image feature vectors
 ├── tokenizer_resnet.pkl  # Trained tokenizer
-├── image_captioning_model_resnet.keras  # Trained model
+├── image_captioning_model.keras  # Trained model
+├── image_captioning_model.h5  # Trained model
 ├── deep_nn.py            # Main training and evaluation script
+├── deep_nn_vgg.py            # Training and evaluation script using vgg
+├── deep_nn.ipynb            # Neural network captured on jupyter notebook
 ├── requirements.txt      # Dependencies
 └── README.md             # Project documentation
 ```
