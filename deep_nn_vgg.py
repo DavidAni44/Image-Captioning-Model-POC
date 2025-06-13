@@ -1,3 +1,5 @@
+#VGG16 TEST IMPLEMENTATION
+
 import numpy as np
 import tensorflow as tf
 import os
@@ -205,5 +207,5 @@ image_feature = extract_single_feature(test_image_path)
 caption = generate_caption_beam_search(model, tokenizer, image_feature, max_length)
 print("Generated Caption:", caption)
 
-# Evaluate BLEU scores on test set
+
 evaluate_bleu_score(model, tokenizer, features, test_captions, max_length)
