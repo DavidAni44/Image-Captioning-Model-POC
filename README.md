@@ -3,9 +3,25 @@
 
 ## Overview
 
-This project implements an image captioning model using a deep learning encoder-decoder architecture. The encoder uses a pre-trained ResNet50 model to extract high-level features from images, while the decoder uses an LSTM network to generate natural language descriptions of those images. The goal is to bridge computer vision and natural language processing, automatically generating meaningful captions for images.
+This project implements an image captioning model using a deep learning encoder-decoder architecture, combining computer vision and natural language processing to generate meaningful textual descriptions for images.
 
-The model is trained and tested on the Flickr8k dataset, which consists of 8,000 images with five human-annotated captions each. The solution is designed to be accessible to both technical and non-technical audiences, and is suitable for deployment or further development in a professional setting.
+Two versions of the model are implemented:
+
+ResNet50 Encoder: Utilizes a pre-trained ResNet50 CNN to extract rich, high-level visual features from images.
+
+VGG16 Encoder: An alternate version using VGG16, offering a simpler but effective approach to feature extraction.
+
+In both cases, the decoder is an LSTM (Long Short-Term Memory) network trained to generate coherent and grammatically sound image captions.
+
+The model is trained and evaluated on the Flickr8k dataset, which contains 8,000 images, each annotated with five human-generated captions.
+
+This solution is designed with clarity and modularity, making it approachable for both technical users (developers, ML practitioners) and non-technical stakeholders (product managers, analysts). It’s well-suited for real-world use cases such as:
+
+Content accessibility (alt-text generation)
+
+Automated media tagging
+
+Image-based search enhancement
 
 ---
 
